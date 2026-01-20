@@ -30,8 +30,10 @@ impl<W: Write> AccountWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::account::AccountStatus;
     use rust_decimal_macros::dec;
     use std::sync::{Arc, Mutex};
+    // ...
 
     /// A mock writer that counts the number of write calls.
     #[derive(Clone)]
@@ -88,7 +90,7 @@ mod tests {
             available: dec!(1.0),
             held: dec!(0.0),
             total: dec!(1.0),
-            locked: false,
+            status: AccountStatus::Active,
         };
 
         let records_count = 100;
@@ -116,7 +118,7 @@ mod tests {
                 available: dec!(1.5000),
                 held: dec!(0.0000),
                 total: dec!(1.5000),
-                locked: false,
+                status: AccountStatus::Active,
             };
 
             writer.write_accounts(vec![account]).unwrap();

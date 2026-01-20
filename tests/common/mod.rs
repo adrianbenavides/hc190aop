@@ -24,8 +24,8 @@ pub fn generate_large_csv(path: &Path, size_mb: usize) -> Result<(), Error> {
     let target_size = (size_mb * 1024 * 1024) as u64;
     let mut tx_id = 1;
 
-    // Check size every 5000 rows to avoid syscall overhead
     loop {
+        // Check size every 5000 rows to avoid syscall overhead
         for _ in 0..5000 {
             wtr.write_record(&["deposit", "1", &tx_id.to_string(), "1.0"])?;
             tx_id += 1;

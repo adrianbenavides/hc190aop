@@ -1,5 +1,23 @@
 use rust_decimal::Decimal;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum AccountStatus {
+    Active,
+    Locked,
+}
+
+impl Serialize for AccountStatus {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            AccountStatus::Active => serializer.serialize_bool(false),
+            AccountStatus::Locked => serializer.serialize_bool(true),
+        }
+    }
+}
 
 #[derive(Debug, Serialize, PartialEq, Clone)]
 pub struct ClientAccount {
@@ -7,7 +25,8 @@ pub struct ClientAccount {
     pub available: Decimal,
     pub held: Decimal,
     pub total: Decimal,
-    pub locked: bool,
+    #[serde(rename = "locked")]
+    pub status: AccountStatus,
 }
 
 impl ClientAccount {
@@ -17,7 +36,7 @@ impl ClientAccount {
             available: Decimal::ZERO,
             held: Decimal::ZERO,
             total: Decimal::ZERO,
-            locked: false,
+            status: AccountStatus::Active,
         }
     }
 
@@ -39,5 +58,16 @@ mod tests {
         account.held = dec!(0.5);
         account.update_total();
         assert_eq!(account.total, dec!(2.0));
+    }
+
+    #[test]
+    fn test_account_status_serialization() {
+        let status = AccountStatus::Locked;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "true");
+
+        let status = AccountStatus::Active;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "false");
     }
 }

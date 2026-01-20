@@ -1,15 +1,17 @@
 use crate::account::ClientAccount;
 use crate::error::PaymentError;
-use std::io::Write;
+use std::io::{BufWriter, Write};
+
+const OUTPUT_BUFFER_SIZE: usize = 8192;
 
 pub struct AccountWriter<W: Write> {
-    writer: csv::Writer<W>,
+    writer: csv::Writer<BufWriter<W>>,
 }
 
 impl<W: Write> AccountWriter<W> {
     pub fn new(sink: W) -> Self {
         Self {
-            writer: csv::Writer::from_writer(sink),
+            writer: csv::Writer::from_writer(BufWriter::with_capacity(OUTPUT_BUFFER_SIZE, sink)),
         }
     }
 
@@ -29,6 +31,80 @@ impl<W: Write> AccountWriter<W> {
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;
+    use std::sync::{Arc, Mutex};
+
+    /// A mock writer that counts the number of write calls.
+    #[derive(Clone)]
+    struct CountWriter {
+        pub count: Arc<Mutex<usize>>,
+        pub inner: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl CountWriter {
+        fn new() -> Self {
+            Self {
+                count: Arc::new(Mutex::new(0)),
+                inner: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn write_count(&self) -> usize {
+            *self.count.lock().unwrap()
+        }
+
+        fn content(&self) -> Vec<u8> {
+            self.inner.lock().unwrap().clone()
+        }
+    }
+
+    impl Write for CountWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            *self.count.lock().unwrap() += 1;
+            self.inner.lock().unwrap().write(buf)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.inner.lock().unwrap().flush()
+        }
+    }
+
+    #[test]
+    fn test_count_writer_functionality() {
+        let mut cw = CountWriter::new();
+        cw.write_all(b"hello").unwrap();
+        cw.write_all(b" world").unwrap();
+        assert_eq!(cw.write_count(), 2);
+        assert_eq!(cw.content(), b"hello world");
+    }
+
+    #[test]
+    fn test_buffering_efficiency() {
+        let cw = CountWriter::new();
+        // Clone for the writer to keep a reference to the counter
+        let mut writer = AccountWriter::new(cw.clone());
+
+        let account = ClientAccount {
+            client: 1,
+            available: dec!(1.0),
+            held: dec!(0.0),
+            total: dec!(1.0),
+            locked: false,
+        };
+
+        let records_count = 100;
+        let records: Vec<_> = (0..records_count).map(|_| account.clone()).collect();
+
+        // Write all records in one go.
+        // The csv writer will write to the BufWriter multiple times.
+        // The BufWriter should absorb these and only write to CountWriter when full or flushed.
+        writer.write_accounts(records).unwrap();
+
+        // Without buffering, csv writer writes frequently (e.g. per record).
+        // With buffering, 100 records * ~30 bytes = 3000 bytes < 8192 bytes.
+        // We expect a single write.
+        let writes = cw.write_count();
+        assert_eq!(writes, 1, "Too many write calls: {}", writes);
+    }
 
     #[test]
     fn test_writer_output() {

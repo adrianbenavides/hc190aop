@@ -1,6 +1,6 @@
-use std::process::Command;
-use std::path::PathBuf;
 use assert_cmd::cargo_bin;
+use std::path::PathBuf;
+use std::process::Command;
 
 mod common;
 

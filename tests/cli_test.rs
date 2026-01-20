@@ -1,10 +1,11 @@
+use assert_cmd::cargo_bin;
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::process::Command;
 
 #[test]
 fn test_cli_end_to_end() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("hc190aop")?;
+    let mut cmd = Command::new(cargo_bin!());
     cmd.arg("tests/fixtures/test.csv");
 
     cmd.assert()

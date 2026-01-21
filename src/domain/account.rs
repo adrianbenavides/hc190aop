@@ -40,32 +40,44 @@ impl SubAssign for Balance {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
 pub enum AccountStatus {
     Active,
     Locked,
 }
 
-impl Serialize for AccountStatus {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            AccountStatus::Active => serializer.serialize_bool(false),
-            AccountStatus::Locked => serializer.serialize_bool(true),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct ClientAccount {
     pub client: u16,
     pub available: Balance,
     pub held: Balance,
     pub total: Balance,
-    #[serde(rename = "locked")]
+    #[serde(
+        rename = "locked",
+        serialize_with = "serialize_bool",
+        deserialize_with = "deserialize_bool"
+    )]
     pub status: AccountStatus,
+}
+
+fn serialize_bool<S>(status: &AccountStatus, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_bool(*status == AccountStatus::Locked)
+}
+
+fn deserialize_bool<'de, D>(deserializer: D) -> Result<AccountStatus, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let locked = bool::deserialize(deserializer)?;
+    if locked {
+        Ok(AccountStatus::Locked)
+    } else {
+        Ok(AccountStatus::Active)
+    }
 }
 
 impl ClientAccount {

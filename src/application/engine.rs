@@ -16,8 +16,7 @@ enum EngineCommand {
 
 pub struct PaymentEngine {
     sender: mpsc::Sender<EngineCommand>,
-    handle: JoinHandle<()>,
-    result_receiver: mpsc::Receiver<ClientAccount>,
+    handle: JoinHandle<Result<Vec<ClientAccount>, Box<dyn Error + Send + Sync>>>,
 }
 
 impl PaymentEngine {
@@ -26,23 +25,11 @@ impl PaymentEngine {
         transaction_factory: TransactionStoreFactory,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(1024);
-        let (result_sender, result_receiver) = mpsc::channel(1024);
 
-        let mut router = RouterWorker::new(
-            account_factory,
-            transaction_factory,
-            receiver,
-            result_sender,
-        );
-        let handle = tokio::spawn(async move {
-            router.run().await;
-        });
+        let mut router = RouterWorker::new(account_factory, transaction_factory, receiver);
+        let handle = tokio::spawn(async move { router.run().await });
 
-        Self {
-            sender,
-            handle,
-            result_receiver,
-        }
+        Self { sender, handle }
     }
 
     pub async fn process_transaction(
@@ -55,14 +42,9 @@ impl PaymentEngine {
         Ok(())
     }
 
-    pub async fn shutdown(mut self) -> Result<Vec<ClientAccount>, Box<dyn Error + Send + Sync>> {
+    pub async fn shutdown(self) -> Result<Vec<ClientAccount>, Box<dyn Error + Send + Sync>> {
         self.sender.send(EngineCommand::Shutdown).await?;
-        self.handle.await?;
-        let mut results = Vec::new();
-        while let Some(account) = self.result_receiver.recv().await {
-            results.push(account);
-        }
-        Ok(results)
+        self.handle.await?
     }
 }
 
@@ -71,8 +53,7 @@ struct RouterWorker {
     transaction_factory: TransactionStoreFactory,
     receiver: mpsc::Receiver<EngineCommand>,
     workers: HashMap<u16, mpsc::Sender<EngineCommand>>,
-    worker_handles: Vec<JoinHandle<()>>,
-    result_sender: mpsc::Sender<ClientAccount>,
+    worker_handles: Vec<(u16, JoinHandle<AccountStoreBox>)>,
 }
 
 impl RouterWorker {
@@ -80,7 +61,6 @@ impl RouterWorker {
         account_factory: AccountStoreFactory,
         transaction_factory: TransactionStoreFactory,
         receiver: mpsc::Receiver<EngineCommand>,
-        result_sender: mpsc::Sender<ClientAccount>,
     ) -> Self {
         Self {
             account_factory,
@@ -88,11 +68,10 @@ impl RouterWorker {
             receiver,
             workers: HashMap::new(),
             worker_handles: Vec::new(),
-            result_sender,
         }
     }
 
-    async fn run(&mut self) {
+    async fn run(&mut self) -> Result<Vec<ClientAccount>, Box<dyn Error + Send + Sync>> {
         while let Some(command) = self.receiver.recv().await {
             match command {
                 EngineCommand::ProcessTransaction(tx) => {
@@ -101,17 +80,14 @@ impl RouterWorker {
                         sender.clone()
                     } else {
                         let (ws, wr) = mpsc::channel(128);
-                        let mut worker = ClientWorker::new(
+                        let worker = ClientWorker::new(
                             client_id,
                             (self.account_factory)(),
                             (self.transaction_factory)(),
                             wr,
-                            self.result_sender.clone(),
                         );
-                        let handle = tokio::spawn(async move {
-                            worker.run().await;
-                        });
-                        self.worker_handles.push(handle);
+                        let handle = tokio::spawn(async move { worker.run().await });
+                        self.worker_handles.push((client_id, handle));
                         self.workers.insert(client_id, ws.clone());
                         ws
                     };
@@ -128,10 +104,15 @@ impl RouterWorker {
             let _ = sender.send(EngineCommand::Shutdown).await;
         }
 
-        // Wait for all workers to finish
-        for handle in self.worker_handles.drain(..) {
-            let _ = handle.await;
+        // Aggregate results from stores
+        let mut final_accounts = Vec::new();
+        for (client_id, handle) in self.worker_handles.drain(..) {
+            let store = handle.await?;
+            let accounts = store.get_all(client_id).await?;
+            final_accounts.extend(accounts);
         }
+
+        Ok(final_accounts)
     }
 }
 
@@ -140,8 +121,6 @@ struct ClientWorker {
     account_store: AccountStoreBox,
     transaction_store: TransactionStoreBox,
     receiver: mpsc::Receiver<EngineCommand>,
-    result_sender: mpsc::Sender<ClientAccount>,
-    account: Option<ClientAccount>,
 }
 
 impl ClientWorker {
@@ -150,27 +129,16 @@ impl ClientWorker {
         account_store: AccountStoreBox,
         transaction_store: TransactionStoreBox,
         receiver: mpsc::Receiver<EngineCommand>,
-        result_sender: mpsc::Sender<ClientAccount>,
     ) -> Self {
         Self {
             client_id,
             account_store,
             transaction_store,
             receiver,
-            result_sender,
-            account: None,
         }
     }
 
-    async fn run(&mut self) {
-        // Initial fetch from store
-        self.account = self
-            .account_store
-            .get(self.client_id)
-            .await
-            .unwrap_or(None)
-            .or_else(|| Some(ClientAccount::new(self.client_id)));
-
+    async fn run(mut self) -> AccountStoreBox {
         while let Some(command) = self.receiver.recv().await {
             match command {
                 EngineCommand::ProcessTransaction(tx) => {
@@ -184,17 +152,18 @@ impl ClientWorker {
                 EngineCommand::Shutdown => break,
             }
         }
-
-        if let Some(account) = self.account.take() {
-            let _ = self.result_sender.send(account).await;
-        }
+        self.account_store
     }
 
     async fn handle_transaction(
         &mut self,
         tx: Transaction,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let account = self.account.as_mut().unwrap();
+        let mut account = self
+            .account_store
+            .get(self.client_id)
+            .await?
+            .unwrap_or_else(|| ClientAccount::new(self.client_id));
 
         // Skip if account is locked
         if account.status == crate::domain::account::AccountStatus::Locked {
@@ -248,6 +217,7 @@ impl ClientWorker {
             }
         }
 
+        self.account_store.store(account).await?;
         Ok(())
     }
 }
@@ -261,14 +231,12 @@ mod tests {
     #[tokio::test]
     async fn test_client_worker_processing() {
         let (ws, wr) = mpsc::channel(10);
-        let (rs, mut rr) = mpsc::channel(10);
 
-        let mut worker = ClientWorker::new(
+        let worker = ClientWorker::new(
             1,
             Box::new(InMemoryAccountStore::new()),
             Box::new(InMemoryTransactionStore::new()),
             wr,
-            rs,
         );
 
         let deposit = Transaction {
@@ -284,9 +252,8 @@ mod tests {
             .unwrap();
         ws.send(EngineCommand::Shutdown).await.unwrap();
 
-        worker.run().await;
-
-        let final_account = rr.recv().await.unwrap();
+        let store = worker.run().await;
+        let final_account = store.get(1).await.unwrap().unwrap();
         assert_eq!(final_account.available, Balance(dec!(100.0)));
     }
 

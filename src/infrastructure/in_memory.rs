@@ -31,9 +31,9 @@ impl AccountStore for InMemoryAccountStore {
         Ok(accounts.get(&client_id).cloned())
     }
 
-    async fn all_accounts(&self) -> io::Result<Vec<ClientAccount>> {
+    async fn get_all(&self, client_id: u16) -> io::Result<Vec<ClientAccount>> {
         let accounts = self.accounts.read().await;
-        Ok(accounts.values().cloned().collect())
+        Ok(accounts.get(&client_id).into_iter().cloned().collect())
     }
 }
 
@@ -80,6 +80,20 @@ mod tests {
         assert_eq!(retrieved, account);
 
         assert!(store.get(2).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_in_memory_account_store_get_all() {
+        let store = InMemoryAccountStore::new();
+        let account = ClientAccount::new(1);
+        store.store(account.clone()).await.unwrap();
+
+        let all = store.get_all(1).await.unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0], account);
+
+        let empty = store.get_all(2).await.unwrap();
+        assert_eq!(empty.len(), 0);
     }
 
     #[tokio::test]

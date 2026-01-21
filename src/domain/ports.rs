@@ -7,7 +7,7 @@ use std::io;
 pub trait AccountStore: Send + Sync {
     async fn store(&self, account: ClientAccount) -> io::Result<()>;
     async fn get(&self, client_id: u16) -> io::Result<Option<ClientAccount>>;
-    async fn all_accounts(&self) -> io::Result<Vec<ClientAccount>>;
+    async fn get_all(&self, client_id: u16) -> io::Result<Vec<ClientAccount>>;
 }
 
 #[async_trait]

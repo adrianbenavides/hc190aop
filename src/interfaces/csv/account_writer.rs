@@ -1,4 +1,4 @@
-use crate::account::ClientAccount;
+use crate::domain::account::ClientAccount;
 use crate::error::PaymentError;
 use std::io::{BufWriter, Write};
 
@@ -30,7 +30,6 @@ impl<W: Write> AccountWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::account::AccountStatus;
     use rust_decimal_macros::dec;
     use std::sync::{Arc, Mutex};
     // ...
@@ -87,10 +86,10 @@ mod tests {
 
         let account = ClientAccount {
             client: 1,
-            available: dec!(1.0),
-            held: dec!(0.0),
-            total: dec!(1.0),
-            status: AccountStatus::Active,
+            available: crate::domain::account::Balance(dec!(1.0)),
+            held: crate::domain::account::Balance(dec!(0.0)),
+            total: crate::domain::account::Balance(dec!(1.0)),
+            status: crate::domain::account::AccountStatus::Active,
         };
 
         let records_count = 100;
@@ -115,10 +114,10 @@ mod tests {
             let mut writer = AccountWriter::new(&mut buf);
             let account = ClientAccount {
                 client: 1,
-                available: dec!(1.5000),
-                held: dec!(0.0000),
-                total: dec!(1.5000),
-                status: AccountStatus::Active,
+                available: crate::domain::account::Balance(dec!(1.5000)),
+                held: crate::domain::account::Balance(dec!(0.0000)),
+                total: crate::domain::account::Balance(dec!(1.5000)),
+                status: crate::domain::account::AccountStatus::Active,
             };
 
             writer.write_accounts(vec![account]).unwrap();

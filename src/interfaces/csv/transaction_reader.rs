@@ -1,5 +1,5 @@
+use crate::domain::transaction::Transaction;
 use crate::error::PaymentError;
-use crate::transaction::Transaction;
 use std::io::Read;
 
 pub struct TransactionReader<R: Read> {

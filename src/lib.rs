@@ -1,7 +1,5 @@
-pub mod account;
-pub mod engine;
+pub mod application;
+pub mod domain;
 pub mod error;
-pub mod reader;
-pub mod store;
-pub mod transaction;
-pub mod writer;
+pub mod infrastructure;
+pub mod interfaces;

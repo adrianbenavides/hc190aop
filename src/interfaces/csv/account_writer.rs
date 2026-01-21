@@ -1,24 +1,34 @@
 use crate::domain::account::ClientAccount;
-use crate::error::PaymentError;
+use crate::error::Result;
 use std::io::{BufWriter, Write};
 
 const OUTPUT_BUFFER_SIZE: usize = 8192;
 
+/// Writes client account states to a CSV sink.
+///
+/// Wraps `csv::Writer` with a `BufWriter` to ensure efficient I/O operations,
+/// especially when writing to stdout.
 pub struct AccountWriter<W: Write> {
     writer: csv::Writer<BufWriter<W>>,
 }
 
 impl<W: Write> AccountWriter<W> {
+    /// Creates a new `AccountWriter` from any `Write` sink.
+    ///
+    /// The writer is automatically buffered with an 8KB capacity.
     pub fn new(sink: W) -> Self {
         Self {
             writer: csv::Writer::from_writer(BufWriter::with_capacity(OUTPUT_BUFFER_SIZE, sink)),
         }
     }
 
+    /// Serializes and writes a collection of accounts to the underlying sink.
+    ///
+    /// Flushes the writer after processing all accounts.
     pub fn write_accounts(
         &mut self,
         accounts: impl IntoIterator<Item = ClientAccount>,
-    ) -> Result<(), PaymentError> {
+    ) -> Result<()> {
         for account in accounts {
             self.writer.serialize(account)?;
         }

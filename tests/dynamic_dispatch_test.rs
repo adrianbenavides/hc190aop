@@ -16,7 +16,7 @@ async fn test_stores_as_trait_objects() {
         r#type: TransactionType::Deposit,
         client: 1,
         tx: 1,
-        amount: Some(dec!(100.0)),
+        amount: Some(dec!(100.0).try_into().unwrap()),
         dispute_status: Default::default(),
     };
 

@@ -5,5 +5,9 @@
 
 !src/
 !src/**
+!tests/
+!Cargo.lock
+!Cargo.toml
+!rustfmt.toml
 
 /target

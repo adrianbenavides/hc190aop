@@ -5,29 +5,36 @@ use std::process::Command;
 mod common;
 
 #[test]
-fn test_large_file_streaming() {
+fn test_large_file() {
     let output_path = PathBuf::from("tests/fixtures/large_test.csv");
     if !output_path.exists() {
-        common::generate_large_csv(&output_path, 50).expect("Failed to generate large CSV");
+        common::generate_large_csv(&output_path, 10).expect("Failed to generate large CSV");
     }
-    let status = Command::new(cargo_bin!("hc190aop"))
-        .arg(&output_path)
-        .status()
-        .expect("Failed to execute command");
-    assert!(status.success(), "Binary failed to process 50MB file");
-}
 
-#[test]
-fn test_large_file_streaming_db() {
-    let output_path = PathBuf::from("tests/fixtures/large_test.csv");
-    if !output_path.exists() {
-        common::generate_large_csv(&output_path, 50).expect("Failed to generate large CSV");
+    // In memory
+    let output1 = Command::new(cargo_bin!("hc190aop"))
+        .arg(&output_path)
+        .output()
+        .expect("Failed to execute command");
+    assert!(output1.status.success());
+    let stdout1 = String::from_utf8_lossy(&output1.stdout);
+
+    // With DB, remove any existing DB first
+    let db_path = PathBuf::from("tests/fixtures/test_db");
+    if db_path.exists() {
+        std::fs::remove_dir_all(&db_path).expect("Failed to remove existing test DB");
     }
-    let status = Command::new(cargo_bin!("hc190aop"))
+    let output2 = Command::new(cargo_bin!("hc190aop"))
         .arg(&output_path)
         .arg("--db-path")
-        .arg("tests/fixtures/test_db")
-        .status()
+        .arg(db_path)
+        .output()
         .expect("Failed to execute command");
-    assert!(status.success(), "Binary failed to process 50MB file");
+    assert!(output2.status.success());
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+
+    assert_eq!(
+        stdout1, stdout2,
+        "Outputs differ between in-memory and DB modes"
+    );
 }

@@ -1,19 +1,28 @@
 use super::account::ClientAccount;
 use super::transaction::Transaction;
+use crate::error::Result;
 use async_trait::async_trait;
-use std::io;
 
 #[async_trait]
+/// Interface for persisting and retrieving client account states.
 pub trait AccountStore: Send + Sync {
-    async fn store(&self, account: ClientAccount) -> io::Result<()>;
-    async fn get(&self, client_id: u16) -> io::Result<Option<ClientAccount>>;
-    async fn get_all(&self, client_id: u16) -> io::Result<Vec<ClientAccount>>;
+    /// Persists the current state of a client account.
+    async fn store(&self, account: ClientAccount) -> Result<()>;
+    /// Retrieves a client account by ID.
+    async fn get(&self, client_id: u16) -> Result<Option<ClientAccount>>;
+    /// Retrieves all client accounts (used for reporting).
+    async fn get_all(&self, client_id: u16) -> Result<Vec<ClientAccount>>;
 }
 
 #[async_trait]
+/// Interface for persisting and retrieving transaction history.
+///
+/// This is crucial for handling disputes, which reference past transactions by ID.
 pub trait TransactionStore: Send + Sync {
-    async fn store(&self, tx: Transaction) -> io::Result<()>;
-    async fn get(&self, tx_id: u32) -> io::Result<Option<Transaction>>;
+    /// Stores a transaction record.
+    async fn store(&self, tx: Transaction) -> Result<()>;
+    /// Retrieves a transaction by its global ID.
+    async fn get(&self, tx_id: u32) -> Result<Option<Transaction>>;
 }
 
 pub type AccountStoreBox = Box<dyn AccountStore>;

@@ -64,10 +64,7 @@ async fn main() -> Result<()> {
     }
 
     // Shutdown engine and collect final state
-    let accounts = engine
-        .shutdown()
-        .await
-        .map_err(|e| miette::miette!("{}", e))?;
+    let accounts = engine.shutdown().await?;
 
     // Output final state
     let stdout = io::stdout();

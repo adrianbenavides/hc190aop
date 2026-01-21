@@ -59,3 +59,29 @@ fn test_invalid_data_types() {
 
     std::fs::remove_file(output_path).ok();
 }
+
+#[test]
+fn test_zero_and_negative_amounts() {
+    let output_path = std::path::PathBuf::from("invalid_amount_test.csv");
+    let mut wtr = csv::Writer::from_path(&output_path).unwrap();
+    wtr.write_record(["type", "client", "tx", "amount"])
+        .unwrap();
+
+    // Zero and negative amounts are ignored
+    wtr.write_record(["deposit", "1", "1", "0.0"]).unwrap();
+    wtr.write_record(["withdrawal", "1", "2", "-1.5"]).unwrap();
+    // Valid deposit is processed
+    wtr.write_record(["deposit", "1", "3", "10.0"]).unwrap();
+    wtr.flush().unwrap();
+    drop(wtr);
+
+    let mut cmd = Command::new(cargo_bin!("hc190aop"));
+    cmd.arg(&output_path);
+
+    cmd.assert()
+        .success()
+        .stderr(predicate::str::contains("Error reading transaction"))
+        .stdout(predicate::str::contains("1,10,0,10,false"));
+
+    std::fs::remove_file(output_path).ok();
+}

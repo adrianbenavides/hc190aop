@@ -1,9 +1,56 @@
+use crate::error::PaymentError;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize, Serializer};
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
+/// Represents a monetary value with 4 decimal places precision.
+///
+/// This is a wrapper around `rust_decimal::Decimal` to enforce domain-specific rules
+/// and provide type safety for financial calculations.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default, Serialize, Deserialize)]
 pub struct Balance(pub Decimal);
+
+/// Represents a positive monetary amount for transactions.
+///
+/// Ensures that transaction amounts are always positive.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub struct Amount(Decimal);
+
+impl Amount {
+    pub fn new(value: Decimal) -> Result<Self, PaymentError> {
+        if value > Decimal::ZERO {
+            Ok(Self(value))
+        } else {
+            Err(PaymentError::ValidationError(
+                "Amount must be positive".to_string(),
+            ))
+        }
+    }
+
+    pub fn value(&self) -> Decimal {
+        self.0
+    }
+}
+
+impl TryFrom<Decimal> for Amount {
+    type Error = PaymentError;
+
+    fn try_from(value: Decimal) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<Amount> for Decimal {
+    fn from(amount: Amount) -> Self {
+        amount.0
+    }
+}
+
+impl From<Amount> for Balance {
+    fn from(amount: Amount) -> Self {
+        Self(amount.0)
+    }
+}
 
 impl Balance {
     pub const ZERO: Self = Self(Decimal::ZERO);
@@ -47,12 +94,21 @@ pub enum AccountStatus {
     Locked,
 }
 
+/// Represents the state of a client's account.
+///
+/// Tracks available funds, held funds (for disputes), and the total balance.
+/// Also maintains the account status (Active or Locked).
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct ClientAccount {
+    /// The unique identifier for the client.
     pub client: u16,
+    /// Funds available for withdrawal or trading.
     pub available: Balance,
+    /// Funds held due to disputes.
     pub held: Balance,
+    /// Total funds (available + held).
     pub total: Balance,
+    /// The status of the account (Active or Locked).
     #[serde(
         rename = "locked",
         serialize_with = "serialize_bool",
@@ -98,47 +154,55 @@ impl ClientAccount {
     }
 
     /// Withdraws funds from available if sufficient
-    pub fn withdraw(&mut self, amount: Balance) -> Result<(), &'static str> {
+    pub fn withdraw(&mut self, amount: Balance) -> Result<(), PaymentError> {
         if self.available >= amount {
             self.available -= amount;
             self.total -= amount;
             Ok(())
         } else {
-            Err("Insufficient funds")
+            Err(PaymentError::ValidationError(
+                "Insufficient funds".to_string(),
+            ))
         }
     }
 
     /// Holds funds (moves from available to held)
-    pub fn hold(&mut self, amount: Balance) -> Result<(), &'static str> {
+    pub fn hold(&mut self, amount: Balance) -> Result<(), PaymentError> {
         if self.available >= amount {
             self.available -= amount;
             self.held += amount;
             Ok(())
         } else {
-            Err("Insufficient funds to hold")
+            Err(PaymentError::ValidationError(
+                "Insufficient funds to hold".to_string(),
+            ))
         }
     }
 
     /// Resolves a hold (moves from held to available)
-    pub fn resolve(&mut self, amount: Balance) -> Result<(), &'static str> {
+    pub fn resolve(&mut self, amount: Balance) -> Result<(), PaymentError> {
         if self.held >= amount {
             self.held -= amount;
             self.available += amount;
             Ok(())
         } else {
-            Err("Held funds mismatch")
+            Err(PaymentError::ValidationError(
+                "Held funds mismatch".to_string(),
+            ))
         }
     }
 
     /// Chargeback (removes from held and locks account)
-    pub fn chargeback(&mut self, amount: Balance) -> Result<(), &'static str> {
+    pub fn chargeback(&mut self, amount: Balance) -> Result<(), PaymentError> {
         if self.held >= amount {
             self.held -= amount;
             self.total -= amount;
             self.status = AccountStatus::Locked;
             Ok(())
         } else {
-            Err("Held funds mismatch")
+            Err(PaymentError::ValidationError(
+                "Held funds mismatch".to_string(),
+            ))
         }
     }
 }
@@ -157,6 +221,19 @@ mod tests {
     }
 
     #[test]
+    fn test_amount_validation() {
+        assert!(Amount::new(dec!(1.0)).is_ok());
+        assert!(matches!(
+            Amount::new(dec!(0.0)),
+            Err(PaymentError::ValidationError(_))
+        ));
+        assert!(matches!(
+            Amount::new(dec!(-1.0)),
+            Err(PaymentError::ValidationError(_))
+        ));
+    }
+
+    #[test]
     fn test_account_deposit() {
         let mut account = ClientAccount::new(1);
         account.deposit(Balance::new(dec!(10.0)));
@@ -167,8 +244,6 @@ mod tests {
     #[test]
     fn test_account_withdraw_success() {
         let mut account = ClientAccount::new(1);
-        // Manually set for test setup if deposit not working yet?
-        // Or assume deposit works. Let's rely on deposit or manual setting.
         account.available = Balance::new(dec!(10.0));
         account.total = Balance::new(dec!(10.0));
 
@@ -184,7 +259,7 @@ mod tests {
         account.available = Balance::new(dec!(10.0));
 
         let result = account.withdraw(Balance::new(dec!(20.0)));
-        assert!(result.is_err());
+        assert!(matches!(result, Err(PaymentError::ValidationError(_))));
         assert_eq!(account.available, Balance::new(dec!(10.0)));
     }
 

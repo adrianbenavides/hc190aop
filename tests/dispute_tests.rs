@@ -82,3 +82,38 @@ fn test_ignore_invalid_dispute_multi_client() {
         .stdout(predicate::str::contains("1,10,0,10,false"))
         .stdout(predicate::str::contains("2,5,0,5,false"));
 }
+
+#[test]
+fn test_dispute_on_withdrawal_ignored() {
+    let mut file = NamedTempFile::new().unwrap();
+    writeln!(file, "type, client, tx, amount").unwrap();
+    writeln!(file, "deposit, 1, 1, 100.0").unwrap();
+    writeln!(file, "withdrawal, 1, 2, 50.0").unwrap();
+    writeln!(file, "dispute, 1, 2, ").unwrap(); // Disputing a withdrawal
+
+    let mut cmd = Command::new(cargo_bin!("hc190aop"));
+    cmd.arg(file.path());
+
+    // Expected: Withdrawal stands, dispute ignored.
+    // 100 - 50 = 50 available, 0 held.
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("1,50,0,50,false"));
+}
+
+#[test]
+fn test_dispute_with_insufficient_funds_ignored() {
+    let mut file = NamedTempFile::new().unwrap();
+    writeln!(file, "type, client, tx, amount").unwrap();
+    writeln!(file, "deposit, 1, 1, 100.0").unwrap();
+    writeln!(file, "withdrawal, 1, 2, 60.0").unwrap();
+    writeln!(file, "dispute, 1, 1, ").unwrap(); // Disputing 100.0 but only 40.0 available
+
+    let mut cmd = Command::new(cargo_bin!("hc190aop"));
+    cmd.arg(file.path());
+
+    // Expected: Dispute ignored because available (40) < dispute amount (100).
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("1,40,0,40,false"));
+}

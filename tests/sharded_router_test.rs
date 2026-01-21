@@ -20,14 +20,14 @@ async fn test_sharded_routing_correctness() {
         r#type: TransactionType::Deposit,
         client: 1,
         tx: 1,
-        amount: Some(dec!(100.0)),
+        amount: Some(dec!(100.0).try_into().unwrap()),
         dispute_status: DisputeStatus::None,
     };
     let tx2 = Transaction {
         r#type: TransactionType::Deposit,
         client: 2,
         tx: 2,
-        amount: Some(dec!(200.0)),
+        amount: Some(dec!(200.0).try_into().unwrap()),
         dispute_status: DisputeStatus::None,
     };
 

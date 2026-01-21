@@ -15,3 +15,9 @@ pub trait TransactionStore: Send + Sync {
     async fn store(&self, tx: Transaction) -> io::Result<()>;
     async fn get(&self, tx_id: u32) -> io::Result<Option<Transaction>>;
 }
+
+pub type AccountStoreBox = Box<dyn AccountStore>;
+pub type TransactionStoreBox = Box<dyn TransactionStore>;
+
+pub type AccountStoreFactory = Box<dyn Fn() -> AccountStoreBox + Send + Sync>;
+pub type TransactionStoreFactory = Box<dyn Fn() -> TransactionStoreBox + Send + Sync>;

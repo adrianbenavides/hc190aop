@@ -1,8 +1,10 @@
 use crate::domain::account::{Balance, ClientAccount};
-use crate::domain::ports::{AccountStore, TransactionStore};
+use crate::domain::ports::{
+    AccountStoreBox, AccountStoreFactory, TransactionStoreBox, TransactionStoreFactory,
+};
 use crate::domain::transaction::{DisputeStatus, Transaction, TransactionType};
+use std::collections::HashMap;
 use std::error::Error;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -15,21 +17,32 @@ enum EngineCommand {
 pub struct PaymentEngine {
     sender: mpsc::Sender<EngineCommand>,
     handle: JoinHandle<()>,
+    result_receiver: mpsc::Receiver<ClientAccount>,
 }
 
 impl PaymentEngine {
     pub fn new(
-        account_store: Arc<dyn AccountStore>,
-        transaction_store: Arc<dyn TransactionStore>,
+        account_factory: AccountStoreFactory,
+        transaction_factory: TransactionStoreFactory,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(1024);
+        let (result_sender, result_receiver) = mpsc::channel(1024);
 
-        let mut worker = EngineWorker::new(account_store, transaction_store, receiver);
+        let mut router = RouterWorker::new(
+            account_factory,
+            transaction_factory,
+            receiver,
+            result_sender,
+        );
         let handle = tokio::spawn(async move {
-            worker.run().await;
+            router.run().await;
         });
 
-        Self { sender, handle }
+        Self {
+            sender,
+            handle,
+            result_receiver,
+        }
     }
 
     pub async fn process_transaction(
@@ -42,29 +55,40 @@ impl PaymentEngine {
         Ok(())
     }
 
-    pub async fn shutdown(self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn shutdown(mut self) -> Result<Vec<ClientAccount>, Box<dyn Error + Send + Sync>> {
         self.sender.send(EngineCommand::Shutdown).await?;
         self.handle.await?;
-        Ok(())
+        let mut results = Vec::new();
+        while let Some(account) = self.result_receiver.recv().await {
+            results.push(account);
+        }
+        Ok(results)
     }
 }
 
-struct EngineWorker {
-    account_store: Arc<dyn AccountStore>,
-    transaction_store: Arc<dyn TransactionStore>,
+struct RouterWorker {
+    account_factory: AccountStoreFactory,
+    transaction_factory: TransactionStoreFactory,
     receiver: mpsc::Receiver<EngineCommand>,
+    workers: HashMap<u16, mpsc::Sender<EngineCommand>>,
+    worker_handles: Vec<JoinHandle<()>>,
+    result_sender: mpsc::Sender<ClientAccount>,
 }
 
-impl EngineWorker {
+impl RouterWorker {
     fn new(
-        account_store: Arc<dyn AccountStore>,
-        transaction_store: Arc<dyn TransactionStore>,
+        account_factory: AccountStoreFactory,
+        transaction_factory: TransactionStoreFactory,
         receiver: mpsc::Receiver<EngineCommand>,
+        result_sender: mpsc::Sender<ClientAccount>,
     ) -> Self {
         Self {
-            account_store,
-            transaction_store,
+            account_factory,
+            transaction_factory,
             receiver,
+            workers: HashMap::new(),
+            worker_handles: Vec::new(),
+            result_sender,
         }
     }
 
@@ -72,12 +96,97 @@ impl EngineWorker {
         while let Some(command) = self.receiver.recv().await {
             match command {
                 EngineCommand::ProcessTransaction(tx) => {
+                    let client_id = tx.client;
+                    let worker_sender = if let Some(sender) = self.workers.get(&client_id) {
+                        sender.clone()
+                    } else {
+                        let (ws, wr) = mpsc::channel(128);
+                        let mut worker = ClientWorker::new(
+                            client_id,
+                            (self.account_factory)(),
+                            (self.transaction_factory)(),
+                            wr,
+                            self.result_sender.clone(),
+                        );
+                        let handle = tokio::spawn(async move {
+                            worker.run().await;
+                        });
+                        self.worker_handles.push(handle);
+                        self.workers.insert(client_id, ws.clone());
+                        ws
+                    };
+                    let _ = worker_sender
+                        .send(EngineCommand::ProcessTransaction(tx))
+                        .await;
+                }
+                EngineCommand::Shutdown => break,
+            }
+        }
+
+        // Shutdown all workers
+        for sender in self.workers.values() {
+            let _ = sender.send(EngineCommand::Shutdown).await;
+        }
+
+        // Wait for all workers to finish
+        for handle in self.worker_handles.drain(..) {
+            let _ = handle.await;
+        }
+    }
+}
+
+struct ClientWorker {
+    client_id: u16,
+    account_store: AccountStoreBox,
+    transaction_store: TransactionStoreBox,
+    receiver: mpsc::Receiver<EngineCommand>,
+    result_sender: mpsc::Sender<ClientAccount>,
+    account: Option<ClientAccount>,
+}
+
+impl ClientWorker {
+    fn new(
+        client_id: u16,
+        account_store: AccountStoreBox,
+        transaction_store: TransactionStoreBox,
+        receiver: mpsc::Receiver<EngineCommand>,
+        result_sender: mpsc::Sender<ClientAccount>,
+    ) -> Self {
+        Self {
+            client_id,
+            account_store,
+            transaction_store,
+            receiver,
+            result_sender,
+            account: None,
+        }
+    }
+
+    async fn run(&mut self) {
+        // Initial fetch from store
+        self.account = self
+            .account_store
+            .get(self.client_id)
+            .await
+            .unwrap_or(None)
+            .or_else(|| Some(ClientAccount::new(self.client_id)));
+
+        while let Some(command) = self.receiver.recv().await {
+            match command {
+                EngineCommand::ProcessTransaction(tx) => {
                     if let Err(e) = self.handle_transaction(tx).await {
-                        eprintln!("Error processing transaction: {:?}", e);
+                        eprintln!(
+                            "Error processing transaction for client {}: {:?}",
+                            self.client_id, e
+                        );
                     }
                 }
                 EngineCommand::Shutdown => break,
             }
+        }
+
+        if let Some(account) = self.account.take() {
+            let _ = self.result_sender.send(account).await;
         }
     }
 
@@ -85,11 +194,7 @@ impl EngineWorker {
         &mut self,
         tx: Transaction,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut account = self
-            .account_store
-            .get(tx.client)
-            .await?
-            .unwrap_or_else(|| ClientAccount::new(tx.client));
+        let account = self.account.as_mut().unwrap();
 
         // Skip if account is locked
         if account.status == crate::domain::account::AccountStatus::Locked {
@@ -143,7 +248,6 @@ impl EngineWorker {
             }
         }
 
-        self.account_store.store(account).await?;
         Ok(())
     }
 }
@@ -155,11 +259,17 @@ mod tests {
     use rust_decimal_macros::dec;
 
     #[tokio::test]
-    async fn test_payment_engine_shutdown() {
-        let as_store = Arc::new(InMemoryAccountStore::new());
-        let ts_store = Arc::new(InMemoryTransactionStore::new());
+    async fn test_client_worker_processing() {
+        let (ws, wr) = mpsc::channel(10);
+        let (rs, mut rr) = mpsc::channel(10);
 
-        let engine = PaymentEngine::new(as_store.clone(), ts_store.clone());
+        let mut worker = ClientWorker::new(
+            1,
+            Box::new(InMemoryAccountStore::new()),
+            Box::new(InMemoryTransactionStore::new()),
+            wr,
+            rs,
+        );
 
         let deposit = Transaction {
             r#type: TransactionType::Deposit,
@@ -169,12 +279,42 @@ mod tests {
             dispute_status: DisputeStatus::None,
         };
 
-        engine.process_transaction(deposit).await.unwrap();
+        ws.send(EngineCommand::ProcessTransaction(deposit))
+            .await
+            .unwrap();
+        ws.send(EngineCommand::Shutdown).await.unwrap();
 
-        // Shutdown should wait for processing to complete
-        engine.shutdown().await.unwrap();
+        worker.run().await;
 
-        let account = as_store.get(1).await.unwrap().unwrap();
-        assert_eq!(account.available, Balance(dec!(100.0)));
+        let final_account = rr.recv().await.unwrap();
+        assert_eq!(final_account.available, Balance(dec!(100.0)));
+    }
+
+    #[tokio::test]
+    async fn test_payment_engine_aggregation() {
+        let af: AccountStoreFactory = Box::new(|| Box::new(InMemoryAccountStore::new()));
+        let tf: TransactionStoreFactory = Box::new(|| Box::new(InMemoryTransactionStore::new()));
+
+        let engine = PaymentEngine::new(af, tf);
+
+        // Send deposits for 100 different clients
+        for i in 1..=100 {
+            let tx = Transaction {
+                r#type: TransactionType::Deposit,
+                client: i as u16,
+                tx: i,
+                amount: Some(dec!(1.0)),
+                dispute_status: DisputeStatus::None,
+            };
+            engine.process_transaction(tx).await.unwrap();
+        }
+
+        // Shutdown should return all 100 accounts
+        let results = engine.shutdown().await.unwrap();
+        assert_eq!(results.len(), 100);
+
+        for account in results {
+            assert_eq!(account.available, Balance(dec!(1.0)));
+        }
     }
 }

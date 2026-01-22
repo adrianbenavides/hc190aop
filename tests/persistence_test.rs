@@ -1,8 +1,13 @@
+#[cfg(feature = "storage-rocksdb")]
 use assert_cmd::cargo_bin;
+#[cfg(feature = "storage-rocksdb")]
 use std::io::Write;
+#[cfg(feature = "storage-rocksdb")]
 use std::process::Command;
+#[cfg(feature = "storage-rocksdb")]
 use tempfile::tempdir;
 
+#[cfg(feature = "storage-rocksdb")]
 #[test]
 fn test_rocksdb_persistence_recovery() {
     let dir = tempdir().unwrap();

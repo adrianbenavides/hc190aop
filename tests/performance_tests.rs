@@ -1,9 +1,13 @@
+#[cfg(feature = "storage-rocksdb")]
 use assert_cmd::cargo_bin;
+#[cfg(feature = "storage-rocksdb")]
 use std::path::PathBuf;
+#[cfg(feature = "storage-rocksdb")]
 use std::process::Command;
 
 mod common;
 
+#[cfg(feature = "storage-rocksdb")]
 #[test]
 fn test_large_file_result_parity() {
     let output_path = PathBuf::from("tests/fixtures/large_test_parity.csv");
@@ -44,6 +48,7 @@ fn test_large_file_result_parity() {
     );
 }
 
+#[cfg(feature = "storage-rocksdb")]
 #[test]
 #[ignore = "Triggered manually to check RAM usage"]
 fn test_large_file() {

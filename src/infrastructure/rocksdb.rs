@@ -1,3 +1,4 @@
+#![cfg(feature = "storage-rocksdb")]
 use crate::domain::account::ClientAccount;
 use crate::domain::ports::{AccountStore, TransactionStore};
 use crate::domain::transaction::Transaction;

@@ -30,6 +30,7 @@ impl From<tokio::task::JoinError> for PaymentError {
     }
 }
 
+#[cfg(feature = "storage-rocksdb")]
 impl From<rocksdb::Error> for PaymentError {
     fn from(err: rocksdb::Error) -> Self {
         PaymentError::InternalError(Box::new(err))

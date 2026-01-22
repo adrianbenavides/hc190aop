@@ -33,8 +33,14 @@ fn test_large_file() {
     assert!(output2.status.success());
     let stdout2 = String::from_utf8_lossy(&output2.stdout);
 
+    // Sort lines before comparison to handle different output orders
+    let mut lines1: Vec<_> = stdout1.lines().collect();
+    let mut lines2: Vec<_> = stdout2.lines().collect();
+    lines1.sort_unstable();
+    lines2.sort_unstable();
+
     assert_eq!(
-        stdout1, stdout2,
-        "Outputs differ between in-memory and DB modes"
+        lines1, lines2,
+        "Outputs differ between in-memory and DB modes (after sorting)"
     );
 }

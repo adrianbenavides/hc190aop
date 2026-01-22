@@ -9,7 +9,6 @@ use miette::{IntoDiagnostic, Result};
 use std::fs::File;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -28,23 +27,19 @@ async fn main() -> Result<()> {
 
     let engine = if let Some(db_path) = cli.db_path {
         // Use persistent storage (RocksDB)
-        // We use Arc to share the opened DB handle during initialization
         let store = RocksDBStore::open(db_path).into_diagnostic()?;
-        let shared_store = Arc::new(store);
 
-        let as_store = shared_store.clone();
-        let af = Box::new(move || Box::new((*as_store).clone()) as AccountStoreBox);
+        // Create boxed instances for each trait
+        let as_store: AccountStoreBox = Box::new(store.clone());
+        let ts_store: TransactionStoreBox = Box::new(store);
 
-        let ts_store = shared_store;
-        let tf = Box::new(move || Box::new((*ts_store).clone()) as TransactionStoreBox);
-
-        PaymentEngine::new(af, tf)
+        PaymentEngine::new(as_store, ts_store)
     } else {
         // Use in-memory storage
-        let af = Box::new(|| Box::new(InMemoryAccountStore::new()) as AccountStoreBox);
-        let tf = Box::new(|| Box::new(InMemoryTransactionStore::new()) as TransactionStoreBox);
+        let as_store: AccountStoreBox = Box::new(InMemoryAccountStore::new());
+        let ts_store: TransactionStoreBox = Box::new(InMemoryTransactionStore::new());
 
-        PaymentEngine::new(af, tf)
+        PaymentEngine::new(as_store, ts_store)
     };
 
     // Process transactions

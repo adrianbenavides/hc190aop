@@ -42,7 +42,7 @@ mod tests {
 
     #[test]
     fn test_error_conversions() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test io error");
+        let io_err = std::io::Error::other("test io error");
         let payment_err: PaymentError = io_err.into();
         // Check it maps to InternalSystemError
         assert!(matches!(payment_err, PaymentError::InternalError(_)));

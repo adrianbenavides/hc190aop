@@ -6,14 +6,12 @@ use rust_decimal_macros::dec;
 
 #[tokio::test]
 async fn test_sharded_routing_correctness() {
-    let af = Box::new(|| {
-        Box::new(InMemoryAccountStore::new()) as hc190aop::domain::ports::AccountStoreBox
-    });
-    let tf = Box::new(|| {
-        Box::new(InMemoryTransactionStore::new()) as hc190aop::domain::ports::TransactionStoreBox
-    });
+    let as_store =
+        Box::new(InMemoryAccountStore::new()) as hc190aop::domain::ports::AccountStoreBox;
+    let ts_store =
+        Box::new(InMemoryTransactionStore::new()) as hc190aop::domain::ports::TransactionStoreBox;
 
-    let engine = PaymentEngine::new(af, tf);
+    let engine = PaymentEngine::new(as_store, ts_store);
 
     // Send transactions for multiple clients
     let tx1 = Transaction {

@@ -10,8 +10,8 @@ pub trait AccountStore: Send + Sync {
     async fn store(&self, account: ClientAccount) -> Result<()>;
     /// Retrieves a client account by ID.
     async fn get(&self, client_id: u16) -> Result<Option<ClientAccount>>;
-    /// Retrieves all client accounts (used for reporting).
-    async fn get_all(&self, client_id: u16) -> Result<Vec<ClientAccount>>;
+    /// Retrieves all client accounts currently in the store.
+    async fn get_all(&self) -> Result<Vec<ClientAccount>>;
 }
 
 #[async_trait]
@@ -27,6 +27,3 @@ pub trait TransactionStore: Send + Sync {
 
 pub type AccountStoreBox = Box<dyn AccountStore>;
 pub type TransactionStoreBox = Box<dyn TransactionStore>;
-
-pub type AccountStoreFactory = Box<dyn Fn() -> AccountStoreBox + Send + Sync>;
-pub type TransactionStoreFactory = Box<dyn Fn() -> TransactionStoreBox + Send + Sync>;

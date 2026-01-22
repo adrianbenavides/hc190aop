@@ -58,8 +58,8 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Shutdown engine and collect final state
-    let accounts = engine.shutdown().await?;
+    // Collect final state from engine
+    let accounts = engine.into_results().await?;
 
     // Output final state
     let stdout = io::stdout();

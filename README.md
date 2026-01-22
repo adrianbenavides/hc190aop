@@ -5,9 +5,8 @@ chargebacks from CSV input and outputs the final state of client accounts.
 
 ### Key Features
 
-- **Sequential Consistency:** Single-worker actor model ensures transactions are processed in strict chronological
-  order.
-- **Lock-Free Design:** State mutations are isolated within a single worker, eliminating the need for global locks.
+- **Sequential Consistency:** Transactions are processed in strict chronological order as they are read from the CSV
+  stream.
 - **Data Integrity:** Accurate decimal arithmetic using `rust_decimal` (supporting up to 4 decimal places as required).
 - **Fault Tolerant:** Robust error handling with `miette` and graceful skipping of invalid rows.
 - **Scalable Storage:** Pluggable backends supporting In-Memory and persistent RocksDB for large datasets.
@@ -17,7 +16,7 @@ chargebacks from CSV input and outputs the final state of client accounts.
 The codebase is organized following Domain-Driven Design (DDD) principles:
 
 - **Domain:** Core business logic and entities (`ClientAccount`, `Transaction`).
-- **Application:** Orchestration and engine logic (`PaymentEngine`, `EngineWorker`).
+- **Application:** Orchestration and engine logic (`PaymentEngine`).
 - **Infrastructure:** Persistence implementations (`InMemory`, `RocksDB`).
 - **Interfaces:** Input/Output handlers (CSV reader/writer).
 
@@ -52,8 +51,6 @@ cargo run -- transactions.csv > accounts.csv
   processes higher precision inputs without rounding errors.
 - **Domain Wrappers:** Types like `Balance` and `Amount` wrap `Decimal` to enforce domain rules (e.g., `Amount` must be
   positive) and prevent accidental misuse.
-- **State Isolation:** The Actor pattern ensures that only one worker can mutate a specific client's state at a time,
-  eliminating race conditions.
 
 ## Safety & Robustness
 
@@ -84,6 +81,8 @@ cargo run -- transactions.csv > accounts.csv
 - **Guaranteed Sequential Order:** Transactions are processed in the exact order they are received from the CSV stream.
   This ensures strict chronological consistency for every client account, which is critical for correctly handling
   deposits, withdrawals, and the dispute lifecycle.
+- **Lock-Free by Design:** Since transactions are processed sequentially by the engine, there is no need for complex
+  global `Mutex` or `RwLock` structures for state management, eliminating lock contention.
 
 ### Scalability & High-Volume Processing
 
@@ -103,12 +102,9 @@ cargo run -- transactions.csv > accounts.csv
 
 - **Streaming I/O:** The engine uses the standard `csv` crate to stream transactions from the input source. This keeps
   memory usage low regardless of the dataset size.
-- **Why a Single Worker?** While the system uses async task management, it intentionally employs a single sequential
-  worker for processing. Sharding workers per client was considered but discarded because:
-    - The input (CSV) is inherently sequential, and we need to process transactions in order for a given client ID.
-    - Sharding adds significant architectural complexity without providing a corresponding benefit for I/O-bound or
-      sequential workloads.
-    - True parallelism would require a more complex non-blocking storage layer to avoid cross-worker contention.
+- **Why Direct Processing?** The architecture uses a direct async model where each transaction is processed and
+  persisted immediately. Previous iterations used an Actor-based worker system, but this was removed to simplify the
+  logic, as sharding/parallelism provided no benefit for the inherently sequential CSV input.
 - **Why not `rayon`?** Parallelizing CSV reading with `rayon` was avoided because transactions for a specific client
   *must* be processed in the exact order they appear in the file.
 - **Persistent Storage:** The engine includes a pluggable `AccountStore` and `TransactionStore` interface, with

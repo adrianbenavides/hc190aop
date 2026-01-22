@@ -57,6 +57,7 @@ cargo run -- transactions.csv > accounts.csv
 
 - **Account Independence**: Assume a Client can only affect their own account. Transactions referencing other
   clients' transactions are ignored.
+- Assume disputes can only be raised on deposits. Disputes on withdrawals are ignored.
 - **Insufficient Funds for Dispute:** If a client attempts to dispute a transaction but lacks sufficient available funds
   to cover the hold (due to subsequent withdrawals), the dispute is rejected. This prevents available balances from
   becoming negative.
@@ -110,3 +111,5 @@ methodology focused on iterative refinement and architectural integrity using th
 - **Iterative TDD:** AI was used to help generate test cases based on the specs. Implementation was performed in small,
   verifiable steps.
 - **Architectural Validation:** AI was used to brainstorm and validate architectural patterns.
+- **This README:** The README itself was drafted and refined with AI assistance to ensure clarity and completeness,
+  given the git history and manual annotations.

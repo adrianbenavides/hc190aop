@@ -17,30 +17,69 @@ struct Cli {
     input: PathBuf,
 
     /// Path to persistent database (optional). If provided, uses RocksDB.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "in_memory")]
     db_path: Option<PathBuf>,
+
+    /// Force in-memory storage, even for large files.
+    #[arg(long, conflicts_with = "db_path")]
+    in_memory: bool,
 }
+
+const ROCKSDB_THRESHOLD_BYTES: u64 = 50 * 1024 * 1024; // 100 MB
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let engine = if let Some(db_path) = cli.db_path {
-        // Use persistent storage (RocksDB)
+    // Determine storage type and handle temporary directory if needed
+    let mut _temp_dir_handle = None;
+
+    let (as_store, ts_store) = if let Some(db_path) = cli.db_path {
+        // Explicit RocksDB
         let store = RocksDBStore::open(db_path).into_diagnostic()?;
-
-        // Create boxed instances for each trait
-        let as_store: AccountStoreBox = Box::new(store.clone());
-        let ts_store: TransactionStoreBox = Box::new(store);
-
-        PaymentEngine::new(as_store, ts_store)
+        (
+            Box::new(store.clone()) as AccountStoreBox,
+            Box::new(store) as TransactionStoreBox,
+        )
+    } else if cli.in_memory {
+        // Explicit In-Memory
+        (
+            Box::new(InMemoryAccountStore::new()) as AccountStoreBox,
+            Box::new(InMemoryTransactionStore::new()) as TransactionStoreBox,
+        )
     } else {
-        // Use in-memory storage
-        let as_store: AccountStoreBox = Box::new(InMemoryAccountStore::new());
-        let ts_store: TransactionStoreBox = Box::new(InMemoryTransactionStore::new());
+        // Auto-selection based on file size
+        let use_rocksdb = if let Ok(metadata) = std::fs::metadata(&cli.input) {
+            if metadata.len() >= ROCKSDB_THRESHOLD_BYTES {
+                eprintln!(
+                    "Input file size ({:.2} MB) exceeds threshold. Using RocksDB storage.",
+                    metadata.len() as f64 / (1024.0 * 1024.0)
+                );
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
 
-        PaymentEngine::new(as_store, ts_store)
+        if use_rocksdb {
+            let temp = tempfile::tempdir().into_diagnostic()?;
+            let store = RocksDBStore::open(temp.path()).into_diagnostic()?;
+            _temp_dir_handle = Some(temp);
+            (
+                Box::new(store.clone()) as AccountStoreBox,
+                Box::new(store) as TransactionStoreBox,
+            )
+        } else {
+            (
+                Box::new(InMemoryAccountStore::new()) as AccountStoreBox,
+                Box::new(InMemoryTransactionStore::new()) as TransactionStoreBox,
+            )
+        }
     };
+
+    let engine = PaymentEngine::new(as_store, ts_store);
 
     // Process transactions
     let file = File::open(cli.input).into_diagnostic()?;

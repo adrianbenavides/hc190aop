@@ -47,7 +47,7 @@ impl PaymentEngine {
             TransactionType::Deposit => {
                 if let Some(amount) = tx.amount {
                     // Ignore duplicate transaction IDs
-                    if self.transaction_store.get(tx.tx).await?.is_none() {
+                    if !self.transaction_store.exists(tx.tx).await? {
                         account.deposit(amount.into());
                         self.transaction_store.store(tx).await?;
                     }
@@ -56,7 +56,7 @@ impl PaymentEngine {
             TransactionType::Withdrawal => {
                 if let Some(amount) = tx.amount {
                     // Ignore duplicate transaction IDs
-                    if self.transaction_store.get(tx.tx).await?.is_none() {
+                    if !self.transaction_store.exists(tx.tx).await? {
                         let _ = account.withdraw(amount.into());
                         self.transaction_store.store(tx).await?;
                     }

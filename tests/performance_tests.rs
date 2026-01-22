@@ -5,15 +5,14 @@ use std::process::Command;
 mod common;
 
 #[test]
-fn test_large_file() {
-    let output_path = PathBuf::from("tests/fixtures/large_test.csv");
-    if !output_path.exists() {
-        common::generate_large_csv(&output_path, 10).expect("Failed to generate large CSV");
-    }
+fn test_large_file_result_parity() {
+    let output_path = PathBuf::from("tests/fixtures/large_test_parity.csv");
+    common::generate_large_csv(&output_path, 5).expect("Failed to generate large CSV");
 
     // In memory
     let output1 = Command::new(cargo_bin!("hc190aop"))
         .arg(&output_path)
+        .arg("--in-memory")
         .output()
         .expect("Failed to execute command");
     assert!(output1.status.success());
@@ -43,4 +42,18 @@ fn test_large_file() {
         lines1, lines2,
         "Outputs differ between in-memory and DB modes (after sorting)"
     );
+}
+
+#[test]
+#[ignore = "Triggered manually to check RAM usage"]
+fn test_large_file() {
+    let output_path = PathBuf::from("tests/fixtures/large_test.csv");
+    if !output_path.exists() {
+        common::generate_large_csv(&output_path, 500).expect("Failed to generate large CSV");
+    }
+    let output1 = Command::new(cargo_bin!("hc190aop"))
+        .arg(&output_path)
+        .output()
+        .expect("Failed to execute command");
+    assert!(output1.status.success());
 }

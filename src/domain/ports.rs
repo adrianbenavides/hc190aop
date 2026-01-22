@@ -23,6 +23,8 @@ pub trait TransactionStore: Send + Sync {
     async fn store(&self, tx: Transaction) -> Result<()>;
     /// Retrieves a transaction by its global ID.
     async fn get(&self, tx_id: u32) -> Result<Option<Transaction>>;
+    /// Checks if a transaction ID has already been processed.
+    async fn exists(&self, tx_id: u32) -> Result<bool>;
 }
 
 pub type AccountStoreBox = Box<dyn AccountStore>;

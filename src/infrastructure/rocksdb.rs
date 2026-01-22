@@ -49,7 +49,7 @@ impl RocksDBStore {
 impl AccountStore for RocksDBStore {
     async fn store(&self, account: ClientAccount) -> Result<()> {
         let cf = self.db.cf_handle(CF_ACCOUNTS).ok_or_else(|| {
-            PaymentError::InternalSystemError(Box::new(std::io::Error::other(
+            PaymentError::InternalError(Box::new(std::io::Error::other(
                 "Accounts column family not found",
             )))
         })?;
@@ -69,7 +69,7 @@ impl AccountStore for RocksDBStore {
 
     async fn get(&self, client_id: u16) -> Result<Option<ClientAccount>> {
         let cf = self.db.cf_handle(CF_ACCOUNTS).ok_or_else(|| {
-            PaymentError::InternalSystemError(Box::new(std::io::Error::other(
+            PaymentError::InternalError(Box::new(std::io::Error::other(
                 "Accounts column family not found",
             )))
         })?;
@@ -92,7 +92,7 @@ impl AccountStore for RocksDBStore {
 
     async fn get_all(&self) -> Result<Vec<ClientAccount>> {
         let handle = self.db.cf_handle("accounts").ok_or_else(|| {
-            PaymentError::InternalSystemError(Box::new(std::io::Error::other(
+            PaymentError::InternalError(Box::new(std::io::Error::other(
                 "Accounts column family not found",
             )))
         })?;
@@ -102,13 +102,13 @@ impl AccountStore for RocksDBStore {
 
         for item in iter {
             let (_key, value) = item.map_err(|e| {
-                PaymentError::InternalSystemError(Box::new(std::io::Error::other(format!(
+                PaymentError::InternalError(Box::new(std::io::Error::other(format!(
                     "RocksDB iteration error: {}",
                     e
                 ))))
             })?;
             let account: ClientAccount = serde_json::from_slice(&value).map_err(|e| {
-                PaymentError::InternalSystemError(Box::new(std::io::Error::other(format!(
+                PaymentError::InternalError(Box::new(std::io::Error::other(format!(
                     "Failed to deserialize account: {}",
                     e
                 ))))
@@ -124,7 +124,7 @@ impl AccountStore for RocksDBStore {
 impl TransactionStore for RocksDBStore {
     async fn store(&self, tx: Transaction) -> Result<()> {
         let cf = self.db.cf_handle(CF_TRANSACTIONS).ok_or_else(|| {
-            PaymentError::InternalSystemError(Box::new(std::io::Error::other(
+            PaymentError::InternalError(Box::new(std::io::Error::other(
                 "Transactions column family not found",
             )))
         })?;
@@ -144,7 +144,7 @@ impl TransactionStore for RocksDBStore {
 
     async fn get(&self, tx_id: u32) -> Result<Option<Transaction>> {
         let cf = self.db.cf_handle(CF_TRANSACTIONS).ok_or_else(|| {
-            PaymentError::InternalSystemError(Box::new(std::io::Error::other(
+            PaymentError::InternalError(Box::new(std::io::Error::other(
                 "Transactions column family not found",
             )))
         })?;
@@ -163,6 +163,19 @@ impl TransactionStore for RocksDBStore {
         } else {
             Ok(None)
         }
+    }
+
+    async fn exists(&self, tx_id: u32) -> Result<bool> {
+        let cf = self.db.cf_handle(CF_TRANSACTIONS).ok_or_else(|| {
+            PaymentError::InternalError(Box::new(std::io::Error::other(
+                "Transactions column family not found",
+            )))
+        })?;
+
+        let key = tx_id.to_be_bytes();
+        // Just check if the key exists without retrieving the value
+        let result = self.db.get_pinned_cf(&cf, key)?;
+        Ok(result.is_some())
     }
 }
 

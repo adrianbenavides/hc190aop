@@ -18,6 +18,7 @@ pub fn generate_csv(path: &Path, rows: usize) -> Result<(), Error> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn generate_large_csv(path: &Path, size_mb: usize) -> Result<(), Error> {
     let file = File::create(path)?;
     let mut wtr = csv::WriterBuilder::new().from_writer(file);

@@ -179,7 +179,7 @@ impl ClientAccount {
         }
     }
 
-    /// Resolves a hold (moves from held to available)
+    /// Resolves a hold (moves from held to available (i.e. inverse from `hold`)
     pub fn resolve(&mut self, amount: Balance) -> Result<(), PaymentError> {
         if self.held >= amount {
             self.held -= amount;

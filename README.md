@@ -1,7 +1,7 @@
 ## Overview
 
-This project implements a transaction processing engine that handles deposits, withdrawals, disputes, resolutions, and
-chargebacks from CSV input and outputs the final state of client accounts.
+This project implements a toy transaction processing engine that handles deposits, withdrawals, disputes, resolutions,
+and chargebacks from CSV input and outputs the final state of client accounts.
 
 ## Project Structure
 
@@ -29,16 +29,13 @@ cargo run -- transactions.csv > accounts.csv
 ### Testing Strategy
 
 - **Unit Tests:** Extensive unit tests for domain logic (`ClientAccount`, `Balance`) and individual components.
-- **Integration Tests:** End-to-end CLI tests using `assert_cmd` and `fixtures` to verify the complete transaction
-  lifecycle.
-- **Performance & Boundary Tests:** Dedicated tests for large datasets (streaming efficiency) and extreme numerical
-  values (maximum precision and overflow checks).
+- **Integration Tests:** End-to-end CLI tests to verify the complete transaction lifecycle.
 
 ### Type Safety
 
 - **Decimal Arithmetic:** The project uses `rust_decimal` instead of floating-point types (`f32`/`f64`) to maintain
-  absolute precision. While the specification expects up to 4 decimal places, the engine accurately preserves and
-  processes higher precision inputs without rounding errors.
+  absolute precision. While we expect up to 4 decimal places, the engine accurately preserves and processes higher
+  precision inputs without rounding errors.
 - **Domain Wrappers:** Types like `Balance` and `Amount` wrap `Decimal` to enforce domain rules (e.g., `Amount` must be
   positive) and prevent accidental misuse.
 
@@ -51,7 +48,7 @@ cargo run -- transactions.csv > accounts.csv
 - **Rich Diagnostics:** `miette` is integrated at the CLI level to provide clear, actionable error reports and stack
   traces for developers and users.
 - **Graceful Degradation:** Errors in individual transaction processing (e.g., malformed CSV rows) are logged to
-  `stderr`, allowing the engine to continue processing subsequent valid transactions.
+  `stderr` (no logging implemented), allowing the engine to continue processing subsequent valid transactions.
 
 ### Edge Case Management
 
@@ -61,10 +58,13 @@ cargo run -- transactions.csv > accounts.csv
 - **Insufficient Funds for Dispute:** If a client attempts to dispute a transaction but lacks sufficient available funds
   to cover the hold (due to subsequent withdrawals), the dispute is rejected. This prevents available balances from
   becoming negative.
-- **Duplicate Transactions:** The engine tracks transaction IDs and ignores duplicates to prevent double-spending or
-  erroneous state updates in case the same transaction appears in the input, or an input file is re-processed.
-- **Locked Accounts:** Once an account is locked (due to a chargeback), all subsequent transactions for that client (
-  except further disputes/resolves) are automatically ignored.
+- **Duplicate Transactions:** The engine tracks transaction IDs and ignores deposits/withdrawals duplicates to prevent
+  double-spending or erroneous state updates in case the same transaction appears in the input, or an input file is
+  re-processed.
+- **Duplicate Disputes:** In the current design, the input CSV define deposits/resolves/chargebacks only referencing an
+  existing deposit transaction, so we can't handle duplicates for these types of transactions.
+- **Locked Accounts:** Once an account is locked (due to a chargeback), all subsequent transactions for that client are
+  ignored.
 - **Floating Point Safety:** By avoiding `f32`/`f64`, we eliminate the risk of precision-based discrepancies.
 
 ## Efficiency & Architecture
@@ -79,18 +79,18 @@ cargo run -- transactions.csv > accounts.csv
 
 - **Supporting `u32::MAX` Transactions:**
     - **Reading Constant Memory Footprint:** By utilizing streaming I/O, the engine processes transactions lazily
-      without
-      loading the entire dataset into RAM.
+      without loading the entire dataset into RAM.
     - Since the engine needs to track transaction history for dispute handling, RAM usage grows with the number of
       unique deposit transactions.
     - **Disk-Backed State:** The pluggable `RocksDB` backend allows the engine to manage transaction history and account
       states that exceed system memory, effectively scaling to the billions of records implied by `u32` transaction IDs.
 - **Server & Network Readiness:**
-    - **Async/Await Infrastructure:** The entire engine is built on the `tokio` async runtime. Every processing step and
-      storage operation is non-blocking, making it highly suitable for integration into high-performance servers.
+    - **Async/Await Infrastructure:** The entire engine is built on the `tokio` async runtime. The transaction logic and
+      the storage traits are non-blocking, making them easy to integrate into async setups.
     - **Concurrent Stream Support:** The `TransactionReader` is generic over `std::io::Read`. In a networked context,
       thousands of concurrent `TcpStream` inputs could be handled simultaneously by spawning `tokio` tasks, with the
-      async engine ensuring efficient resource utilization without thread-per-connection overhead.
+      async engine ensuring efficient resource utilization without thread-per-connection overhead. We would need to
+      refactor the reader/writer into generic async traits (currently they are structs with a fixed impl).
 
 ### Design Decisions & Trade-offs
 
@@ -102,6 +102,11 @@ cargo run -- transactions.csv > accounts.csv
 - **Persistent Storage:** The engine includes a pluggable `AccountStore` and `TransactionStore` interface, with
   implementations for both `InMemory` (fast) and `RocksDB` (persistent), allowing it to handle datasets larger than
   available RAM and recover state after restarts.
+- **Why not Actors?**: In of the iterations, I implemented (sharded) Actors to process client's transactions in
+  parallel. The benefits of this design would be especially notable when using sharded storage. For this implementation,
+  the added implementation complexity was not worth it. To improve the sequential processing time (current design) we
+  could pre-process the input CSVs to partition them by client, in which case, the Actor pattern would be even less
+  necessary.
 
 ## AI-Assisted Development Methodology
 
